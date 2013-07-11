@@ -24,6 +24,7 @@ References:
 var fs = require('fs');
 var program = require('commander');
 var cheerio = require('cheerio');
+var restler = require('restler');
 var HTMLFILE_DEFAULT = "index.html";
 var CHECKSFILE_DEFAULT = "checks.json";
 
@@ -45,15 +46,30 @@ var loadChecks = function(checksfile) {
 };
 
 var checkHtmlFile = function(htmlfile, checksfile) {
-    $ = cheerioHtmlFile(htmlfile);
+    doChecks(cheerioHtmlFile(htmlfile), checksfile);
+};
+
+var checkURL = function(url, checksfile) {
+    restler.get(url).on('complete', function(result) {
+        if (result instanceof Error) {
+            console.error('Error: ' + result.message);
+            this.retry(5000); // try again after 5 sec
+        } else {
+           doChecks(cheerio.load(result), checksfile);
+        }
+    });
+}
+
+var doChecks = function($, checksfile) {
     var checks = loadChecks(checksfile).sort();
     var out = {};
     for(var ii in checks) {
         var present = $(checks[ii]).length > 0;
         out[checks[ii]] = present;
     }
-    return out;
-};
+    var outJson = JSON.stringify(out, null, 4);
+    console.log(outJson);
+}
 
 var clone = function(fn) {
     // Workaround for commander.js issue.
@@ -64,11 +80,17 @@ var clone = function(fn) {
 if(require.main == module) {
     program
         .option('-c, --checks <check_file>', 'Path to checks.json', clone(assertFileExists), CHECKSFILE_DEFAULT)
-        .option('-f, --file <html_file>', 'Path to index.html', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-f, --file <html_file>', 'File Path', clone(assertFileExists), HTMLFILE_DEFAULT)
+        .option('-u, --url <url>', 'URL')
         .parse(process.argv);
-    var checkJson = checkHtmlFile(program.file, program.checks);
-    var outJson = JSON.stringify(checkJson, null, 4);
-    console.log(outJson);
+
+    var checkJson;
+
+    if (program.url) {
+        checkURL(program.url, program.checks);
+    } else {
+        checkHtmlFile(program.file, program.checks);
+    }
 } else {
     exports.checkHtmlFile = checkHtmlFile;
 }
